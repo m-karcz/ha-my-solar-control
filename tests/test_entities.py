@@ -1,17 +1,20 @@
 """Tests for the entities the example integration exposes."""
 
+from datetime import datetime
 from unittest.mock import AsyncMock
 
+from freezegun.api import FrozenDateTimeFactory
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
-from custom_components.ha_integration_domain.api import IntegrationBlueprintApiClientError
-from custom_components.ha_integration_domain.const import CONF_FILTER_REPLACEMENT_THRESHOLD
+from custom_components.my_solar_control.api import MySolarControlApiClientError
+from custom_components.my_solar_control.const import CONF_FILTER_REPLACEMENT_THRESHOLD
 from homeassistant.components.fan import DOMAIN as FAN_DOMAIN, SERVICE_SET_PERCENTAGE
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
 
 async def test_entities_read_the_coordinator_payload(
@@ -62,7 +65,7 @@ async def test_write_failure_raises_translated_error(
     mock_api: AsyncMock,
 ) -> None:
     """A failing device call surfaces as a translated HomeAssistantError."""
-    mock_api.side_effect = IntegrationBlueprintApiClientError("boom")
+    mock_api.side_effect = MySolarControlApiClientError("boom")
 
     with pytest.raises(HomeAssistantError) as err:
         await hass.services.async_call(
@@ -81,9 +84,33 @@ async def test_entities_go_unavailable_when_the_poll_fails(
     mock_api: AsyncMock,
 ) -> None:
     """A failed refresh makes the entities unavailable rather than stale."""
-    mock_api.side_effect = IntegrationBlueprintApiClientError("boom")
+    mock_api.side_effect = MySolarControlApiClientError("boom")
 
     await init_integration.runtime_data.coordinator.async_refresh()
     await hass.async_block_till_done()
 
     assert hass.states.get("sensor.demo_filter_life_remaining").state == STATE_UNAVAILABLE
+
+
+async def test_weekend_sensor_turns_on_at_local_midnight_without_a_poll(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    config_entry: MockConfigEntry,
+    mock_api: AsyncMock,
+) -> None:
+    """The weekend sensor follows the local calendar and flips at midnight without calling the device again."""
+    local_zone = dt_util.get_time_zone(hass.config.time_zone)
+    freezer.move_to(datetime(2026, 11, 6, 23, 59, tzinfo=local_zone))
+    config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("binary_sensor.demo_weekend").state == "off"
+
+    midnight = datetime(2026, 11, 7, tzinfo=local_zone)
+    freezer.move_to(midnight)
+    async_fire_time_changed(hass, midnight)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("binary_sensor.demo_weekend").state == "on"
+    assert mock_api.call_count == 1

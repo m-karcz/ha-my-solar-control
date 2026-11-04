@@ -1,0 +1,14 @@
+{
+  "domain": "my_solar_control",
+  "name": "My Solar Control",
+  "codeowners": [
+    "@m-karcz"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/m-karcz/ha-my-solar-control",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/m-karcz/ha-my-solar-control/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
